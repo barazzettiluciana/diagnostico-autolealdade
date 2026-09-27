@@ -19,6 +19,10 @@ button,.cta{border:0;background:var(--verde);color:#fff;border-radius:999px;padd
 .ends{display:flex;justify-content:space-between;font-size:12px;color:#68756d;margin-top:6px}.nav{display:flex;justify-content:space-between;margin-top:26px}.secondary{background:#e8eee8;color:var(--verde)}
 .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.mini{padding:15px;border:1px solid #e3e8e1;border-radius:14px}.mini strong{display:block;color:var(--verde);font-size:18px}.result-score{text-align:center;font-size:58px;font-family:Georgia,serif;color:var(--verde)}
 .note{background:#f5f0df;padding:18px;border-radius:14px;line-height:1.55}.cta{display:block;text-align:center;width:100%;margin-top:20px}
+.form-group{margin:16px 0}.form-group label{display:block;font-weight:700;color:var(--verde);margin-bottom:7px}
+.form-group input{width:100%;padding:14px 15px;border:1px solid #d8dfd7;border-radius:12px;font-size:16px;background:#fff;color:var(--texto);outline:none}
+.form-group input:focus{border-color:var(--oliva);box-shadow:0 0 0 3px #a9c5a52e}
+.form-help{font-size:13px;color:#68756d;line-height:1.45}.error{color:#9b2c2c;font-size:13px;margin-top:10px;display:none}
 canvas{max-height:430px}@media(max-width:600px){h1{font-size:30px}.card{padding:21px}.grid{grid-template-columns:1fr}.question{font-size:22px}}
 </style>
 </head>
@@ -41,6 +45,19 @@ canvas{max-height:430px}@media(max-width:600px){h1{font-size:30px}.card{padding:
 <div class="nav"><button id="back" class="secondary" onclick="prev()">Voltar</button><button onclick="next()">Continuar</button></div>
 </section>
 
+
+<section id="capture" class="card hidden">
+<div class="brand">Seu diagnóstico está pronto</div>
+<h2 style="text-align:center">Antes de ver o seu resultado...</h2>
+<p class="lead">Preencha seus dados para acessar o seu Diagnóstico da Autolealdade.</p>
+<div class="form-group"><label for="nome">Seu nome</label><input id="nome" type="text" autocomplete="name" placeholder="Como você gostaria de ser chamada?"></div>
+<div class="form-group"><label for="email">Seu melhor e-mail</label><input id="email" type="email" autocomplete="email" placeholder="voce@exemplo.com"></div>
+<div class="form-group"><label for="telefone">WhatsApp <span style="font-weight:400;font-size:13px;color:#68756d">(somente números)</span></label><input id="telefone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="11" placeholder="41999999999" oninput="this.value=this.value.replace(/\D/g,'').slice(0,11)"></div>
+<p class="form-help">Seus dados serão usados para registrar o seu diagnóstico e manter contato sobre conteúdos e próximos passos da Jornada para o Ser.</p>
+<div id="formError" class="error">Preencha nome, e-mail e WhatsApp para continuar.</div>
+<div class="center"><button onclick="submitLead()">VER MEU RESULTADO</button></div>
+</section>
+
 <section id="result" class="hidden">
 <div class="card"><div class="brand">Seu retrato de hoje</div><h2 style="text-align:center">Seu Diagnóstico da Autolealdade</h2>
 <div id="total" class="result-score"></div><p id="diagnosis" class="lead"></p></div>
@@ -53,6 +70,11 @@ canvas{max-height:430px}@media(max-width:600px){h1{font-size:30px}.card{padding:
 <a class="cta" href="#" id="offer">QUERO COMEÇAR A MINHA JORNADA</a></div>
 </section></main>
 <script>
+/* SUPABASE: preencher estes dois valores na próxima etapa.
+   Use somente a API URL e a Publishable Key. Nunca use Secret/Service Role Key no navegador. */
+const SUPABASE_URL = "https://lflvamubudcwuutjqllh.supabase.co/rest/v1/";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_GACPMVuvhY3qbdegEF4oBg_7lYs0lov";
+
 const data=[
 ["Prioridade para mim","Consigo reservar tempo para mim sem sentir culpa."],
 ["Prioridade para mim","Considero minhas necessidades quando tomo decisões importantes."],
@@ -86,11 +108,60 @@ function start(){$("intro").classList.add("hidden");$("quiz").classList.remove("
 function render(){let q=data[i];$("counter").textContent=`Pergunta ${i+1} de ${data.length}`;$("area").textContent=q[0];$("question").textContent=q[1];range.value=answers[i];$("score").textContent=answers[i];$("bar").style.width=((i+1)/data.length*100)+"%";$("back").style.visibility=i?"visible":"hidden"}
 function next(){answers[i]=+range.value;if(i<data.length-1){i++;render()}else finish()}
 function prev(){answers[i]=+range.value;if(i){i--;render()}}
+let pendingResult=null;
 function finish(){
-$("quiz").classList.add("hidden");$("result").classList.remove("hidden");
+$("quiz").classList.add("hidden");
 let groups={};data.forEach((q,j)=>(groups[q[0]]??=[]).push(answers[j]));
 let labels=Object.keys(groups), vals=labels.map(k=>groups[k].reduce((a,b)=>a+b,0)/groups[k].length);
 let avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+pendingResult={groups,labels,vals,avg};
+$("capture").classList.remove("hidden");
+window.scrollTo({top:0,behavior:"smooth"});
+}
+
+async function submitLead(){
+const nome=$("nome").value.trim(), email=$("email").value.trim(), telefone=$("telefone").value.trim();
+const emailOk=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+if(!nome || !emailOk || !telefone){$("formError").style.display="block";return}
+$("formError").style.display="none";
+const {labels,vals,avg}=pendingResult;
+const minIndex=vals.indexOf(Math.min(...vals));
+const faixa=avg<4.5?"Ponto de atenção":avg<7?"Em construção":"Base consistente";
+const payload={
+  respostas: answers,
+  pontuacao_total: Math.round(avg*10),
+  pontuacoes_areas: Object.fromEntries(labels.map((k,n)=>[k,Number(vals[n].toFixed(2))])),
+  faixa_resultado: faixa,
+  area_prioritaria: labels[minIndex],
+  email, nome, telefone
+};
+const configured=!SUPABASE_URL.includes("COLE_AQUI")&&!SUPABASE_PUBLISHABLE_KEY.includes("COLE_AQUI");
+if(configured){
+  try{
+    const r=await fetch(SUPABASE_URL+"/rest/v1/respostas_diagnostico",{
+      method:"POST",
+      headers:{
+        "apikey":SUPABASE_PUBLISHABLE_KEY,
+        "Authorization":"Bearer "+SUPABASE_PUBLISHABLE_KEY,
+        "Content-Type":"application/json",
+        "Prefer":"return=minimal"
+      },
+      body:JSON.stringify(payload)
+    });
+    if(!r.ok) throw new Error("Falha ao registrar diagnóstico: "+r.status);
+  }catch(e){
+    console.error(e);
+    $("formError").textContent="Não foi possível registrar seu diagnóstico agora. Tente novamente em instantes.";
+    $("formError").style.display="block";
+    return;
+  }
+}
+$("capture").classList.add("hidden");$("result").classList.remove("hidden");
+renderResult();
+}
+
+function renderResult(){
+let {labels,vals,avg}=pendingResult;
 $("total").textContent=avg.toFixed(1)+"/10";
 $("diagnosis").textContent=avg<4.5?"Seu resultado indica que, neste momento, você pode estar se deixando para depois em várias áreas importantes. O primeiro passo não é mudar tudo: é enxergar com clareza onde você mais precisa voltar para o seu lado.":avg<7?"Seu resultado mostra uma relação consigo mesma que já tem pontos de sustentação, mas também áreas em que suas necessidades, limites ou escolhas podem estar ficando em segundo plano.":"Seu resultado mostra uma base consistente de autolealdade. Observe especialmente as áreas com menor pontuação: são elas que podem revelar onde sua atenção precisa estar agora.";
 const examples = avg<4.5
